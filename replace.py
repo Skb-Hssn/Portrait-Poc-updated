@@ -8,6 +8,11 @@ file_path = "images/Imu_1.jpg"
 # HARDCODE YOUR TEXTURE IMAGE PATH HERE
 texture_file_path = "images/Imu_2.jpg"
 
+FRAME_ONE_X = 595
+FRAME_ONE_Y = 342
+FRAME_TWO_X = 555
+FRAME_TWO_Y = 322
+
 # Load the main background image
 try:
     img = Image.open(file_path).convert('RGB')
@@ -55,13 +60,8 @@ def manual_fill_polygon(image, vertices, tex_pixels, tex_width, tex_height):
                 for x in range(x_start, x_end + 1):
                     # Your custom offset logic
                     try:
-                        frame_one_x = 595
-                        frame_one_y = 342
-                        frame_two_x = 555
-                        frame_two_y = 322
-
-                        tex_x = (x + frame_two_x - frame_one_x)
-                        tex_y = (y + frame_two_y - frame_one_y)
+                        tex_x = (x + FRAME_TWO_X - FRAME_ONE_X)
+                        tex_y = (y + FRAME_TWO_Y - FRAME_ONE_Y)
                         # Ensure texture coordinates are within bounds for this example
                         # If you want tiling, use the modulo operator: tex_x % tex_width
                         if 0 <= tex_x < tex_width and 0 <= tex_y < tex_height:
