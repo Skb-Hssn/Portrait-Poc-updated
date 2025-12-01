@@ -9,8 +9,12 @@ Description: Main script to compare two images based on a user-selected referenc
 # ==========================================
 
 # --- Input Files ---
-IMAGE_1_PATH = 'images/Imu_1.jpg'
-IMAGE_2_PATH = 'images/Imu_2.jpg'
+IMAGE_1_PATH = 'output_image_textured_final.png'
+IMAGE_2_PATH = 'images/Imu_2.png'
+
+# IMAGE_1_PATH = 'images/Imu_1.png'
+# IMAGE_2_PATH = 'images/Imu_2.png'
+
 MARKER_SCRIPT_FILENAME = "image_marker.py"
 
 # --- Matching Logic Constants ---
@@ -18,20 +22,20 @@ MARKER_SCRIPT_FILENAME = "image_marker.py"
 MATCH_BLOCK_SIZE = 60 
 
 # How far to search in pixels around the click point (X axis)
-SEARCH_RANGE_X = 40 
+SEARCH_RANGE_X = 100
 
 # How far to search in pixels around the click point (Y axis)
-SEARCH_RANGE_Y = 20 
+SEARCH_RANGE_Y = 100
 
 # Maximum allowed difference per RGB channel sum to consider a pixel a "match"
-PIXEL_DIFF_THRESHOLD = 15 
+PIXEL_DIFF_THRESHOLD = 25
 
 # Stop searching a specific block if mismatch count exceeds this
 MAX_MISMATCH_TOLERANCE = 1000 
 
 # --- Visualization & Processing ---
 # Gaussian blur radius for preprocessing/visuals
-BLUR_RADIUS = 5 
+BLUR_RADIUS = 11
 
 # Color and width of the square drawn on the result image
 RESULT_SQUARE_COLOR = "blue"
@@ -46,7 +50,7 @@ import sys
 import time
 import math
 from functools import wraps
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 from rich.console import Console
 
 # ==========================================
@@ -117,6 +121,128 @@ def gaussian_blur(image, radius=2):
             blurred[y][x] = (int(r_total), int(g_total), int(b_total))
 
     return blurred
+
+
+# ==========================================
+#           ADDITIONAL BLUR ALGORITHMS
+# ==========================================
+
+def box_blur(image, radius=2):
+    """
+    Applies a Box Blur (Average Blur) to the image.
+    Each pixel is the average of its neighbors.
+    """
+    height = len(image)
+    width = len(image[0])
+    blurred = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
+    
+    for y in range(height):
+        for x in range(width):
+            r_sum, g_sum, b_sum = 0, 0, 0
+            count = 0
+            
+            # Iterate kernel
+            for ky in range(-radius, radius + 1):
+                for kx in range(-radius, radius + 1):
+                    ny = y + ky
+                    nx = x + kx
+                    
+                    # Boundary check
+                    if 0 <= ny < height and 0 <= nx < width:
+                        r, g, b = image[ny][nx]
+                        r_sum += r
+                        g_sum += g
+                        b_sum += b
+                        count += 1
+            
+            if count > 0:
+                blurred[y][x] = (int(r_sum//count), int(g_sum//count), int(b_sum//count))
+            else:
+                blurred[y][x] = image[y][x]
+                
+    return blurred
+
+
+def median_blur(image, radius=2):
+    """
+    Applies a Median Blur to the image.
+    Good for removing salt-and-pepper noise while preserving edges.
+    """
+    height = len(image)
+    width = len(image[0])
+    blurred = [[(0, 0, 0) for _ in range(width)] for _ in range(height)]
+
+    for y in range(height):
+        for x in range(width):
+            neighbors_r = []
+            neighbors_g = []
+            neighbors_b = []
+            
+            for ky in range(-radius, radius + 1):
+                for kx in range(-radius, radius + 1):
+                    ny = y + ky
+                    nx = x + kx
+                    if 0 <= ny < height and 0 <= nx < width:
+                        r, g, b = image[ny][nx]
+                        neighbors_r.append(r)
+                        neighbors_g.append(g)
+                        neighbors_b.append(b)
+            
+            neighbors_r.sort()
+            neighbors_g.sort()
+            neighbors_b.sort()
+            
+            mid = len(neighbors_r) // 2
+            blurred[y][x] = (neighbors_r[mid], neighbors_g[mid], neighbors_b[mid])
+
+    return blurred
+
+def multi_pass_box_blur(image, radius=2, passes=3):
+    """
+    Advanced: Applies the Box Blur multiple times.
+    3 passes of a Box Blur approximates a high-quality Gaussian blur.
+    This creates a very smooth, organic look without 'ringing' artifacts.
+    """
+    # We use the previously defined box_blur function
+    # If you don't have it, simple average logic applies here.
+    
+    current_image = image
+    for i in range(passes):
+        print(f"  -> Processing Blur Pass {i+1}/{passes}...")
+        current_image = box_blur(current_image, radius)
+    return current_image
+
+
+def pillow_native_smooth_blur(pixel_data, radius=5):
+    """
+    Advanced: Converts the list-of-lists pixel data back to a Pillow Image,
+    applies the highly optimized C-based Gaussian Blur (allowing for 
+    large radii), and converts it back.
+    
+    Gives the 'smoothest' gradient possible (Creamy/Bokeh look).
+    """
+    height = len(pixel_data)
+    width = len(pixel_data[0])
+    
+    # 1. Convert List-of-Lists back to PIL Image
+    temp_img = Image.new('RGB', (width, height))
+    pixels = temp_img.load()
+    for y in range(height):
+        for x in range(width):
+            pixels[x, y] = pixel_data[y][x]
+            
+    # 2. Apply Heavy Smoothing using PIL's optimized filter
+    # increasing radius here makes it much smoother (e.g., 10 or 20)
+    blurred_img = temp_img.filter(ImageFilter.GaussianBlur(radius))
+    
+    # 3. Convert back to List-of-Lists
+    blurred_pixels = blurred_img.load()
+    new_pixel_data = [[(0,0,0) for _ in range(width)] for _ in range(height)]
+    for y in range(height):
+        for x in range(width):
+            new_pixel_data[y][x] = blurred_pixels[x, y]
+            
+    return new_pixel_data
 
 # ==========================================
 #           IMAGE PROCESSING LOGIC
@@ -199,6 +325,10 @@ def find_position_in_first_image(frame_one, frame_two, start_x, start_y):
     print("[Min val, xx, yy] :", min_val, xx, yy)
     return xx, yy
 
+# ==========================================
+#        MODIFIED DRAW FUNCTION
+# ==========================================
+
 @timing_decorator
 def draw_unmatched_pixels(input_image_path, frame_one, first_center_x, first_center_y, frame_two, second_center_x, second_center_y):
     console = Console()
@@ -213,8 +343,22 @@ def draw_unmatched_pixels(input_image_path, frame_one, first_center_x, first_cen
         out_img = Image.new(img.mode, img.size)
         out_pixels_out = out_img.load()
 
-        # Pre-calculate blur if needed (currently used for logic but not displayed directly)
-        blurred_frame_one = gaussian_blur(frame_one, BLUR_RADIUS)
+        # ---------------------------------------------------------
+        # --- SELECT BLUR ALGORITHM HERE ---
+        # Uncomment the specific algorithm you want to test.
+        # ---------------------------------------------------------
+        
+        # Option 1: Standard Gaussian (Manual implementation)
+        # processed_frame = gaussian_blur(frame_one, radius=5)
+
+        # Option 2: Multi-Pass Box Blur (Very smooth, organic approximation)
+        # processed_frame = multi_pass_box_blur(frame_one, radius=3, passes=3)
+
+        # Option 3: Pillow Native (BEST for "Creamy" smoothness)
+        # It handles larger radius (e.g., 10) efficiently.
+        processed_frame = pillow_native_smooth_blur(frame_one, radius=8)
+        
+        # ---------------------------------------------------------
 
         console.print(f"[cyan]Applying modification...[/cyan]")
         for y in range(height):
@@ -231,8 +375,9 @@ def draw_unmatched_pixels(input_image_path, frame_one, first_center_x, first_cen
                          + abs(frame_one[y][x][2] - frame_two[sy][sx][2]))
                     
                     if dif > 0:
-                        # Draw black for difference
-                        out_pixels_out[x, y] = (0, 0, 0) 
+                        # --- MODIFIED: USE BLURRED PIXEL INSTEAD OF BLACK ---
+                        # We grab the pre-calculated blurred pixel at this location
+                        out_pixels_out[x, y] = processed_frame[y][x]
                     else:                    
                         out_pixels_out[x, y] = pixels_out[x, y]
                 else:
@@ -248,6 +393,7 @@ def draw_unmatched_pixels(input_image_path, frame_one, first_center_x, first_cen
     except Exception as e:
         console.print(f"[red]An error occurred: {e}[/red]")
         return False
+    
 
 def draw_square_and_open(image_path, center_x, center_y):
     """Draws a square on the image at results coordinate."""
@@ -317,7 +463,7 @@ def get_coordinates_from_image(image_path_to_process):
                     y_part = parts[1].split(':')[1]
                     x_coord, y_coord = int(x_part), int(y_part)
                     print(f"RECEIVED: X={x_coord}, Y={y_coord}")
-                    process.kill() # Close the GUI once we have coordinates
+                    # process.kill() # Close the GUI once we have coordinates
                     return x_coord, y_coord
                 except Exception as e:
                     print(f"Error parsing coordinates: {e}")

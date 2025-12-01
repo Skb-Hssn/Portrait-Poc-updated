@@ -1,47 +1,66 @@
+"""
+File: texture_fill_and_compare.py
+Description: 
+    1. Loads a main image and a texture image.
+    2. Allows user to draw a polygon.
+    3. Fills the INSIDE of the polygon with the texture.
+    4. Compares the OUTSIDE of the polygon against the texture.
+       If pixels match (within threshold), they are turned black (0,0,0).
+    5. Saves the result as 'output_image_textured_final.png'.
+"""
+
+# ==========================================
+#              CONFIGURATION
+# ==========================================
+
+# --- Input Files ---
+MAIN_IMAGE_PATH = "images/Imu_1.png"
+TEXTURE_IMAGE_PATH = "images/Imu_2.png"
+OUTPUT_FILENAME = "output_image_textured_final.png"
+
+# --- Alignment Coordinates ---
+# Point (FRAME_ONE_X, FRAME_ONE_Y) in Main Image aligns with 
+# Point (FRAME_TWO_X, FRAME_TWO_Y) in Texture Image
+FRAME_ONE_X = 681
+FRAME_ONE_Y = 347
+
+FRAME_TWO_X = 682
+FRAME_TWO_Y = 347
+
+# --- Comparison Logic ---
+# Sum of absolute differences (R+G+B) allowed to consider pixels "similar"
+SIMILARITY_THRESHOLD = 1 
+
+# --- Drawing/UI Settings ---
+DRAW_COLOR = (255, 255, 255)
+ERASE_RADIUS = 3
+
+# ==========================================
+#                  IMPORTS
+# ==========================================
 import tkinter as tk
 from PIL import Image, ImageTk, ImageDraw
+import sys
 
-# --- 1. Define and load image files ---
+# ==========================================
+#           IMAGE PROCESSING LOGIC
+# ==========================================
 
-# HARDCODE YOUR MAIN IMAGE PATH HERE
-file_path = "images/Imu_1.jpg"
-# HARDCODE YOUR TEXTURE IMAGE PATH HERE
-texture_file_path = "images/Imu_2.jpg"
-
-FRAME_ONE_X = 595
-FRAME_ONE_Y = 342
-FRAME_TWO_X = 555
-FRAME_TWO_Y = 322
-
-# Load the main background image
-try:
-    img = Image.open(file_path).convert('RGB')
-    out_img = img.copy()
-except Exception as e:
-    print(f"Error opening main image file '{file_path}': {e}")
-    exit()
-
-# Load the texture image
-try:
-    texture_img = Image.open(texture_file_path).convert('RGB')
-    texture_pixels = texture_img.load()
-    texture_width, texture_height = texture_img.size
-except Exception as e:
-    print(f"Error opening texture image file '{texture_file_path}': {e}")
-    exit()
-
-
-# --- 2. State variables ---
-current_color = (255, 255, 255) # Color for points and lines
-drawn_points = []
-current_mode = "draw"
-
-# --- Manual Scan-line Polygon Fill Function ---
 def manual_fill_polygon(image, vertices, tex_pixels, tex_width, tex_height):
-    """Fills a polygon by mapping pixels from a texture image."""
+    """
+    Fills the INSIDE of a polygon by mapping pixels from a texture image.
+    Uses a standard scan-line algorithm.
+    """
     pixels = image.load()
+    
+    # Simple bounding box to reduce scan area
+    if not vertices: return
     min_y = min(v[1] for v in vertices)
     max_y = max(v[1] for v in vertices)
+    
+    # Clamp bounds to image size
+    min_y = max(0, min_y)
+    max_y = min(image.height - 1, max_y)
 
     for y in range(min_y, max_y + 1):
         intersections = []
@@ -53,170 +72,267 @@ def manual_fill_polygon(image, vertices, tex_pixels, tex_width, tex_height):
                     x = p1[0] + (y - p1[1]) * (p2[0] - p1[0]) / (p2[1] - p1[1])
                     intersections.append(x)
         intersections.sort()
+        
         for i in range(0, len(intersections), 2):
             if i + 1 < len(intersections):
                 x_start = round(intersections[i])
                 x_end = round(intersections[i+1])
+                
+                # Clamp x range
+                x_start = max(0, x_start)
+                x_end = min(image.width - 1, x_end)
+
                 for x in range(x_start, x_end + 1):
-                    # Your custom offset logic
                     try:
+                        # Calculate texture offset based on alignment points
                         tex_x = (x + FRAME_TWO_X - FRAME_ONE_X)
                         tex_y = (y + FRAME_TWO_Y - FRAME_ONE_Y)
-                        # Ensure texture coordinates are within bounds for this example
-                        # If you want tiling, use the modulo operator: tex_x % tex_width
+                        
                         if 0 <= tex_x < tex_width and 0 <= tex_y < tex_height:
                            pixels[x, y] = tex_pixels[tex_x, tex_y]
-                    except IndexError:
-                        # This can happen if offsets go out of bounds. Ignore for now.
+                    except Exception:
                         pass
-                    except Exception as e:
-                        print(f"Error processing pixel ({x},{y}): {e}")
 
-# --- Helper function to update the canvas image ---
-def update_canvas_image():
-    """Creates a new PhotoImage and updates the canvas."""
-    new_tk_image = ImageTk.PhotoImage(out_img)
-    canvas.itemconfig(canvas_image_item, image=new_tk_image)
-    # CRITICAL: Keep a reference to the new image object
-    canvas.image = new_tk_image
+def compare_and_mask_outside(image, texture_pixels, tex_width, tex_height, vertices):
+    """
+    Iterates through pixels OUTSIDE the provided polygon vertices.
+    Compares the Main Image pixel with the corresponding Texture Image pixel.
+    If they are similar, changes the pixel value so the difference 
+    relative to the texture is exactly 1.
+    """
+    print("Processing outside pixels... this may take a moment.")
+    width, height = image.size
+    pixels = image.load()
 
-# --- 3. Create the GUI Window and Widgets ---
-root = tk.Tk()
-root.title("Image Texturizer (Scrollable)")
+    # 1. Create a binary mask of the polygon
+    mask_img = Image.new('L', (width, height), 0)
+    mask_draw = ImageDraw.Draw(mask_img)
+    mask_draw.polygon(vertices, outline=255, fill=255)
+    mask_pixels = mask_img.load()
 
-# --- Button functions ---
-def set_mode_draw():
-    global current_mode
-    current_mode = "draw"
-    canvas.config(cursor="arrow")
-    print("Mode set to: DRAW")
+    # 2. Iterate over all pixels
+    for y in range(height):
+        for x in range(width):
+            # Check if pixel is OUTSIDE the polygon (mask value 0)
+            if mask_pixels[x, y] == 0:
+                # Calculate texture coordinate
+                tex_x = (x + FRAME_TWO_X - FRAME_ONE_X)
+                tex_y = (y + FRAME_TWO_Y - FRAME_ONE_Y)
 
-def set_mode_erase():
-    global current_mode
-    current_mode = "erase"
-    canvas.config(cursor="dotbox")
-    print("Mode set to: ERASE")
+                # Check bounds of texture
+                if 0 <= tex_x < tex_width and 0 <= tex_y < tex_height:
+                    # Get pixel values
+                    r1, g1, b1 = pixels[x, y]
+                    r2, g2, b2 = texture_pixels[tex_x, tex_y]
 
-def fill_polygon():
-    """Constructs the polygon and fills it using the texture image."""
-    if len(drawn_points) < 2:
-        print("Not enough points to form a polygon. Need at least 2.")
-        return
-    print("Filling polygon with texture...")
-    image_height = out_img.height
-    last_point = drawn_points[-1]
-    first_point = drawn_points[0]
-    last_ground_point = (last_point[0], image_height - 1)
-    first_ground_point = (first_point[0], image_height - 1)
+                    # Calculate difference (Manhattan distance)
+                    diff = abs(r1 - r2) + abs(g1 - g2) + abs(b1 - b2)
+
+                    # If similar, change value so difference is exactly 1
+                    if diff < SIMILARITY_THRESHOLD:
+                        # We take the texture pixel (r2, g2, b2) and shift Red by 1.
+                        # If Red is maxed (255), subtract 1, otherwise add 1.
+                        new_r = r2 - 1 if r2 == 255 else r2 + 1
+                        
+                        # Assign the almost-identical texture color
+                        pixels[x, y] = (new_r, g2, b2)
     
-    polygon_vertices = []
-    polygon_vertices.extend(drawn_points)
-    polygon_vertices.append(last_ground_point)
-    polygon_vertices.append(first_ground_point)
+    print("Outside comparison complete.")
 
-    manual_fill_polygon(out_img, polygon_vertices, texture_pixels, texture_width, texture_height)
-    update_canvas_image()
+# ==========================================
+#              GUI APPLICATION
+# ==========================================
 
-def draw_lines():
-    """Draws lines connecting the points sequentially and to the ground."""
-    if not drawn_points: return
-    draw = ImageDraw.Draw(out_img)
-    image_height = out_img.height
-    first_point = drawn_points[0]
-    first_ground_point = (first_point[0], image_height - 1)
-    draw.line((first_point, first_ground_point), fill=current_color, width=1)
-    if len(drawn_points) > 1:
-        for i in range(len(drawn_points) - 1):
-            draw.line((drawn_points[i], drawn_points[i+1]), fill=current_color, width=1)
-        last_point = drawn_points[-1]
-        last_ground_point = (last_point[0], image_height - 1)
-        draw.line((last_point, last_ground_point), fill=current_color, width=1)
-    update_canvas_image()
+class TexturizerApp:
+    def __init__(self, root, main_img_path, tex_img_path):
+        self.root = root
+        self.root.title("Image Texturizer (Scrollable)")
+        
+        # --- Load Images ---
+        try:
+            self.img_orig = Image.open(main_img_path).convert('RGB')
+            self.out_img = self.img_orig.copy() # Working copy
+            
+            self.tex_img = Image.open(tex_img_path).convert('RGB')
+            self.tex_pixels = self.tex_img.load()
+            self.tex_width, self.tex_height = self.tex_img.size
+        except Exception as e:
+            print(f"Error loading images: {e}")
+            sys.exit(1)
 
-# --- Create UI Frames and Buttons ---
-button_frame = tk.Frame(root)
-button_frame.pack(side="top", fill="x", pady=5) # Buttons at the top
+        # --- State ---
+        self.drawn_points = []
+        self.current_mode = "draw"
 
-draw_button = tk.Button(button_frame, text="Draw Mode", command=set_mode_draw)
-draw_button.pack(side=tk.LEFT, padx=10)
-erase_button = tk.Button(button_frame, text="Erase Mode", command=set_mode_erase)
-erase_button.pack(side=tk.LEFT, padx=10)
-fill_button = tk.Button(button_frame, text="Fill Polygon", command=fill_polygon)
-fill_button.pack(side=tk.LEFT, padx=10)
-draw_lines_button = tk.Button(button_frame, text="Draw Lines", command=draw_lines)
-draw_lines_button.pack(side=tk.LEFT, padx=10)
+        # --- Layout ---
+        self._setup_ui()
+        self._update_canvas()
 
-# --- NEW: Setup for Scrollable Canvas ---
-# A frame will hold the canvas and scrollbars
-container_frame = tk.Frame(root)
-container_frame.pack(fill="both", expand=True)
+        # --- Initial Console Output ---
+        print(f"Loaded '{main_img_path}' and '{tex_img_path}'.")
+        print("Draw points, then click 'Fill & Compare'.")
 
-canvas = tk.Canvas(container_frame)
-v_scrollbar = tk.Scrollbar(container_frame, orient="vertical", command=canvas.yview)
-h_scrollbar = tk.Scrollbar(container_frame, orient="horizontal", command=canvas.xview)
-canvas.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+    def _setup_ui(self):
+        # Button Frame
+        btn_frame = tk.Frame(self.root)
+        btn_frame.pack(side="top", fill="x", pady=5)
 
-canvas.grid(row=0, column=0, sticky="nsew")
-v_scrollbar.grid(row=0, column=1, sticky="ns")
-h_scrollbar.grid(row=1, column=0, sticky="ew")
+        tk.Button(btn_frame, text="Draw Mode", command=self.set_mode_draw).pack(side=tk.LEFT, padx=10)
+        tk.Button(btn_frame, text="Erase Mode", command=self.set_mode_erase).pack(side=tk.LEFT, padx=10)
+        tk.Button(btn_frame, text="Draw Lines (Preview)", command=self.draw_lines).pack(side=tk.LEFT, padx=10)
+        
+        # The main action button
+        tk.Button(btn_frame, text="Fill & Compare", command=self.process_image, bg="#ddffdd").pack(side=tk.LEFT, padx=10)
 
-container_frame.grid_rowconfigure(0, weight=1)
-container_frame.grid_columnconfigure(0, weight=1)
+        # Scrollable Canvas Container
+        container = tk.Frame(self.root)
+        container.pack(fill="both", expand=True)
 
-# --- Load image onto the canvas ---
-img_width, img_height = out_img.size
-tk_image = ImageTk.PhotoImage(out_img)
-canvas_image_item = canvas.create_image(0, 0, anchor="nw", image=tk_image)
-canvas.image = tk_image # Keep reference
-canvas.config(scrollregion=canvas.bbox("all"))
+        self.canvas = tk.Canvas(container)
+        v_scroll = tk.Scrollbar(container, orient="vertical", command=self.canvas.yview)
+        h_scroll = tk.Scrollbar(container, orient="horizontal", command=self.canvas.xview)
+        self.canvas.configure(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
 
-# Set initial window size, capped by screen dimensions
-screen_width = root.winfo_screenwidth()
-screen_height = root.winfo_screenheight()
-window_width = min(img_width, screen_width - 50)
-window_height = min(img_height, screen_height - 100) # -100 to account for buttons/title bar
-root.geometry(f"{window_width}x{window_height}")
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        v_scroll.grid(row=0, column=1, sticky="ns")
+        h_scroll.grid(row=1, column=0, sticky="ew")
+        
+        container.grid_rowconfigure(0, weight=1)
+        container.grid_columnconfigure(0, weight=1)
 
-# --- 4. The Click Handler Function ---
-def on_image_click(event):
-    # KEY CHANGE: Convert window coordinates to full canvas coordinates
-    x = int(canvas.canvasx(event.x))
-    y = int(canvas.canvasy(event.y))
+        # Bind Click
+        self.canvas.bind("<Button-1>", self.on_click)
+
+        # Window Sizing
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        w = min(self.img_orig.width, sw - 50)
+        h = min(self.img_orig.height, sh - 100)
+        self.root.geometry(f"{w}x{h}")
+
+    def _update_canvas(self):
+        self.tk_image = ImageTk.PhotoImage(self.out_img)
+        self.canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
+        self.canvas.config(scrollregion=self.canvas.bbox("all"))
+
+    def set_mode_draw(self):
+        self.current_mode = "draw"
+        self.canvas.config(cursor="arrow")
+        print("Mode: DRAW")
+
+    def set_mode_erase(self):
+        self.current_mode = "erase"
+        self.canvas.config(cursor="dotbox")
+        print("Mode: ERASE")
+
+    def draw_lines(self):
+        """Visual preview of the polygon lines."""
+        if not self.drawn_points: return
+        
+        # Draw on a temp copy to not permanently fuse lines before fill
+        preview_img = self.out_img.copy() 
+        draw = ImageDraw.Draw(preview_img)
+        
+        h = preview_img.height
+        pts = self.drawn_points
+        
+        # Connect to ground logic
+        first_ground = (pts[0][0], h - 1)
+        last_ground = (pts[-1][0], h - 1)
+        
+        draw.line((pts[0], first_ground), fill=DRAW_COLOR, width=1)
+        if len(pts) > 1:
+            draw.line(pts, fill=DRAW_COLOR, width=1)
+            draw.line((pts[-1], last_ground), fill=DRAW_COLOR, width=1)
+        
+        # Update display temporarily
+        self.tk_image = ImageTk.PhotoImage(preview_img)
+        self.canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
+
+    def on_click(self, event):
+        cx = int(self.canvas.canvasx(event.x))
+        cy = int(self.canvas.canvasy(event.y))
+        
+        pixels = self.out_img.load()
+        modified = False
+
+        if self.current_mode == "draw":
+            self.drawn_points.append((cx, cy))
+            if 0 <= cx < self.out_img.width and 0 <= cy < self.out_img.height:
+                pixels[cx, cy] = DRAW_COLOR
+                modified = True
+        
+        elif self.current_mode == "erase":
+            r = ERASE_RADIUS
+            # Filter points to remove
+            to_remove = [p for p in self.drawn_points 
+                         if (cx - r <= p[0] <= cx + r) and (cy - r <= p[1] <= cy + r)]
+            
+            for p in to_remove:
+                self.drawn_points.remove(p)
+                # Restore original pixel
+                orig_px = self.img_orig.getpixel(p)
+                pixels[p[0], p[1]] = orig_px
+                modified = True
+
+        if modified:
+            self._update_canvas()
+
+    def process_image(self):
+        """
+        1. Fills polygon with texture.
+        2. Compares outside pixels.
+        3. Saves final image.
+        """
+        if len(self.drawn_points) < 2:
+            print("Need at least 2 points to define a region.")
+            return
+
+        print("Starting processing...")
+        
+        # 1. Define Polygon Vertices (including ground points)
+        h = self.out_img.height
+        poly_vertices = list(self.drawn_points)
+        # Add bottom-right projection of last point
+        poly_vertices.append((self.drawn_points[-1][0], h - 1))
+        # Add bottom-left projection of first point
+        poly_vertices.append((self.drawn_points[0][0], h - 1))
+
+        # 2. Fill Inside
+        manual_fill_polygon(
+            self.out_img, 
+            poly_vertices, 
+            self.tex_pixels, 
+            self.tex_width, 
+            self.tex_height
+        )
+
+        # 3. Compare Outside
+        compare_and_mask_outside(
+            self.out_img,
+            self.tex_pixels,
+            self.tex_width,
+            self.tex_height,
+            poly_vertices
+        )
+
+        # 4. Update View and Save
+        self._update_canvas()
+        
+        try:
+            self.out_img.save(OUTPUT_FILENAME)
+            print(f"Success! Image saved to: {OUTPUT_FILENAME}")
+        except Exception as e:
+            print(f"Error saving image: {e}")
+
+# ==========================================
+#                   MAIN
+# ==========================================
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = TexturizerApp(root, MAIN_IMAGE_PATH, TEXTURE_IMAGE_PATH)
     
-    image_was_modified = False
-    pixels_out = out_img.load()
-    if current_mode == "draw":
-        drawn_points.append((x, y))
-        pixels_out[x, y] = current_color
-        image_was_modified = True
-    elif current_mode == "erase":
-        erase_radius = 3
-        for point in drawn_points[:]:
-            px, py = point
-            if (x - erase_radius <= px <= x + erase_radius) and \
-               (y - erase_radius <= py <= y + erase_radius):
-                drawn_points.remove(point)
-                original_pixel = img.getpixel((px, py))
-                pixels_out[px, py] = original_pixel
-                image_was_modified = True
-    if image_was_modified:
-        update_canvas_image()
-
-# --- 5. Bind the click event ---
-canvas.bind("<Button-1>", on_image_click)
-
-# --- 6. Run the Application ---
-print(f"Loaded '{file_path}' with texture '{texture_file_path}'. Window is running...")
-set_mode_draw()
-try:
-    root.mainloop()
-except KeyboardInterrupt:
-    print("\nProgram terminated by user (Ctrl+C).")
-
-# --- 7. Final actions ---
-try:
-    out_img.save("output_image_textured.png")
-    print("\nModified image saved as 'output_image_textured.png'")
-except Exception as e:
-    print(f"Could not save the image. Error: {e}")
-print("\n--- Final list of all points drawn ---\n", drawn_points)
+    try:
+        root.mainloop()
+    except KeyboardInterrupt:
+        print("Terminated.")
