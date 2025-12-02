@@ -93,7 +93,7 @@ def manual_fill_polygon(image, vertices, tex_pixels, tex_width, tex_height):
                 x_start = max(0, x_start)
                 x_end = min(image.width - 1, x_end)
 
-                for x in range(x_start, x_end + 1):
+                for x in range(x_start+1, x_end):
                     try:
                         tex_x = (x + FRAME_TWO_X - FRAME_ONE_X)
                         tex_y = (y + FRAME_TWO_Y - FRAME_ONE_Y)
@@ -209,7 +209,7 @@ class TexturizerApp:
         length = CURSOR_SIZE 
         
         # Draw Vertical Line starting at (cx, cy) and going down
-        l1 = self.canvas.create_line(cx, cy, cx, cy + length, fill=CURSOR_COLOR, width=2)
+        l1 = self.canvas.create_line(cx, cy, cx, cy + length, fill=CURSOR_COLOR, width=1)
         
         self.cursor_items = [l1]
 
