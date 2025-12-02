@@ -10,10 +10,10 @@ Description: Main script to compare two images based on a user-selected referenc
 
 # --- Input Files ---
 IMAGE_1_PATH = 'output_image_textured_final.png'
-IMAGE_2_PATH = 'images/Imu_2.png'
+IMAGE_2_PATH = 'frame_1.png'
 
-# IMAGE_1_PATH = 'images/Imu_1.png'
-# IMAGE_2_PATH = 'images/Imu_2.png'
+# IMAGE_1_PATH = 'frame_1.png'
+# IMAGE_2_PATH = 'frame_2.png'
 
 MARKER_SCRIPT_FILENAME = "image_marker.py"
 
@@ -22,10 +22,10 @@ MARKER_SCRIPT_FILENAME = "image_marker.py"
 MATCH_BLOCK_SIZE = 60 
 
 # How far to search in pixels around the click point (X axis)
-SEARCH_RANGE_X = 100
+SEARCH_RANGE_X = 30
 
 # How far to search in pixels around the click point (Y axis)
-SEARCH_RANGE_Y = 100
+SEARCH_RANGE_Y = 30
 
 # Maximum allowed difference per RGB channel sum to consider a pixel a "match"
 PIXEL_DIFF_THRESHOLD = 25
@@ -52,6 +52,8 @@ import math
 from functools import wraps
 from PIL import Image, ImageDraw, ImageFilter
 from rich.console import Console
+import tkinter as tk
+from PIL import ImageTk
 
 # ==========================================
 #           UTILITY & DECORATORS
@@ -329,7 +331,6 @@ def find_position_in_first_image(frame_one, frame_two, start_x, start_y):
 #        MODIFIED DRAW FUNCTION
 # ==========================================
 
-@timing_decorator
 def draw_unmatched_pixels(input_image_path, frame_one, first_center_x, first_center_y, frame_two, second_center_x, second_center_y):
     console = Console()
     try:
@@ -349,14 +350,14 @@ def draw_unmatched_pixels(input_image_path, frame_one, first_center_x, first_cen
         # ---------------------------------------------------------
         
         # Option 1: Standard Gaussian (Manual implementation)
-        # processed_frame = gaussian_blur(frame_one, radius=5)
+        processed_frame = gaussian_blur(frame_one, BLUR_RADIUS)
 
         # Option 2: Multi-Pass Box Blur (Very smooth, organic approximation)
         # processed_frame = multi_pass_box_blur(frame_one, radius=3, passes=3)
 
         # Option 3: Pillow Native (BEST for "Creamy" smoothness)
         # It handles larger radius (e.g., 10) efficiently.
-        processed_frame = pillow_native_smooth_blur(frame_one, radius=8)
+        # processed_frame = pillow_native_smooth_blur(frame_one, radius=8)
         
         # ---------------------------------------------------------
 
@@ -384,7 +385,42 @@ def draw_unmatched_pixels(input_image_path, frame_one, first_center_x, first_cen
                     # Out of bounds comparison
                     out_pixels_out[x, y] = pixels_out[x, y]
 
-        out_img.show(title="Image Modified")
+        # ---------------------------------------------------------
+        # REPLACED out_img.show() WITH TKINTER WINDOW
+        # ---------------------------------------------------------
+        def on_close():
+            """Handles the window close event."""
+            save_path = "poc_output.png"
+            try:
+                out_img.save(save_path)
+                console.print(f"[green]Window closed. Image saved to: {save_path}[/green]")
+            except Exception as e:
+                console.print(f"[red]Failed to save image: {e}[/red]")
+            finally:
+                root.destroy()
+
+        console.print("[yellow]Displaying result. Close the window to save 'poc_output.png'...[/yellow]")
+        
+        root = tk.Tk()
+        root.title("Modified Image (Close to Save)")
+        
+        # Convert PIL image to Tkinter-compatible image
+        tk_img = ImageTk.PhotoImage(out_img)
+        
+        # Create a label to hold the image
+        label = tk.Label(root, image=tk_img)
+        label.pack()
+        
+        # Bind the close button (X) to the save function
+        root.protocol("WM_DELETE_WINDOW", on_close)
+        
+        # Bring window to front
+        root.lift()
+        root.attributes('-topmost',True)
+        root.after_idle(root.attributes,'-topmost',False)
+        
+        root.mainloop()
+        
         return True
         
     except FileNotFoundError:
@@ -393,7 +429,8 @@ def draw_unmatched_pixels(input_image_path, frame_one, first_center_x, first_cen
     except Exception as e:
         console.print(f"[red]An error occurred: {e}[/red]")
         return False
-    
+
+
 
 def draw_square_and_open(image_path, center_x, center_y):
     """Draws a square on the image at results coordinate."""

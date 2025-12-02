@@ -32,9 +32,12 @@ def extract_frames(video_path, output_folder):
             break
         
         # ------------------------------------------------------------------
-        # NEW: Fix for upside-down frames. Flip 180 degrees.
-        # frame = cv2.flip(frame, -1)
+        # FIX: Flip the frame to correct orientation
+        # 0  = Flip vertically
+        # 1  = Flip horizontally
+        # -1 = Flip both (Rotates image 180 degrees)
         # ------------------------------------------------------------------
+        frame = cv2.flip(frame, -1)
 
         filename = f"frame_{str(frame_count).zfill(5)}.png"
         save_path = os.path.join(output_folder, filename)

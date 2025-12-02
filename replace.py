@@ -14,25 +14,25 @@ Description:
 # ==========================================
 
 # --- Input Files ---
-MAIN_IMAGE_PATH = "images/Imu_1.png"
-TEXTURE_IMAGE_PATH = "images/Imu_2.png"
+MAIN_IMAGE_PATH = "frame_1.png"
+TEXTURE_IMAGE_PATH = "frame_1.png"
 OUTPUT_FILENAME = "output_image_textured_final.png"
 
 # --- Alignment Coordinates ---
 # Point (FRAME_ONE_X, FRAME_ONE_Y) in Main Image aligns with 
 # Point (FRAME_TWO_X, FRAME_TWO_Y) in Texture Image
-FRAME_ONE_X = 681
-FRAME_ONE_Y = 347
+FRAME_ONE_X = 504
+FRAME_ONE_Y = 431
 
-FRAME_TWO_X = 682
-FRAME_TWO_Y = 347
+FRAME_TWO_X = 504
+FRAME_TWO_Y = 431
 
 # --- Comparison Logic ---
 # Sum of absolute differences (R+G+B) allowed to consider pixels "similar"
 SIMILARITY_THRESHOLD = 1 
 
 # --- Drawing/UI Settings ---
-DRAW_COLOR = (255, 255, 255)
+DRAW_COLOR = (0, 0, 0)
 ERASE_RADIUS = 3
 
 # ==========================================
