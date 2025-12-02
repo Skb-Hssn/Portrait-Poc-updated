@@ -32,7 +32,7 @@ FRAME_TWO_Y = 431
 SIMILARITY_THRESHOLD = 1 
 
 # --- Drawing/UI Settings ---
-DRAW_COLOR = (0, 0, 0)
+DRAW_COLOR = (255, 255, 255)
 ERASE_RADIUS = 3
 
 # ==========================================
