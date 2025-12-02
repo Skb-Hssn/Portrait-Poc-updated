@@ -62,6 +62,33 @@ def manual_fill_polygon(image, vertices, tex_pixels, tex_width, tex_height):
     min_y = max(0, min_y)
     max_y = min(image.height - 1, max_y)
 
+    for y in range(image.height):
+        for x in range(image.width):
+        # Check if pixel is OUTSIDE the polygon (mask value 0)
+        
+            # Calculate texture coordinate
+            tex_x = (x + FRAME_TWO_X - FRAME_ONE_X)
+            tex_y = (y + FRAME_TWO_Y - FRAME_ONE_Y)
+
+            # Check bounds of texture
+            if 0 <= tex_x < tex_width and 0 <= tex_y < tex_height:
+                # Get pixel values
+                r1, g1, b1 = pixels[x, y]
+                r2, g2, b2 = tex_pixels[tex_x, tex_y]
+
+                # Calculate difference (Manhattan distance)
+                diff = abs(r1 - r2) + abs(g1 - g2) + abs(b1 - b2)
+
+                # If similar, change value so difference is exactly 1
+                if diff < SIMILARITY_THRESHOLD:
+                    # We take the texture pixel (r2, g2, b2) and shift Red by 1.
+                    # If Red is maxed (255), subtract 1, otherwise add 1.
+                    new_r = r2 - 1 if r2 == 255 else r2 + 1
+                    
+                    # Assign the almost-identical texture color
+                    pixels[x, y] = (new_r, g2, b2)
+        
+
     for y in range(min_y, max_y + 1):
         intersections = []
         for i in range(len(vertices)):
@@ -308,13 +335,13 @@ class TexturizerApp:
         )
 
         # 3. Compare Outside
-        compare_and_mask_outside(
-            self.out_img,
-            self.tex_pixels,
-            self.tex_width,
-            self.tex_height,
-            poly_vertices
-        )
+        # compare_and_mask_outside(
+        #     self.out_img,
+        #     self.tex_pixels,
+        #     self.tex_width,
+        #     self.tex_height,
+        #     poly_vertices
+        # )
 
         # 4. Update View and Save
         self._update_canvas()
